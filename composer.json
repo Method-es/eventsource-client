@@ -8,5 +8,10 @@
     ],
     "require": {
         "react/http-client": "^0.4.10"
+    },
+    "autoload": {
+        "psr-4": {
+            "Method\\":"src/"
+        }
     }
 }
