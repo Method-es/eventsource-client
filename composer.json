@@ -1,0 +1,12 @@
+{
+    "name": "method-es/eventsource-client",
+    "authors": [
+        {
+            "name": "Keaton Johnstone",
+            "email": "method@methodweb.net"
+        }
+    ],
+    "require": {
+        "react/http-client": "^0.4.10"
+    }
+}
