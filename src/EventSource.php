@@ -15,6 +15,17 @@ class EventSource extends EventEmitter
     const OPEN = 1;
     const CLOSED = 2;
 
+    const HEADER_CONTENT_TYPE = 'Content-Type';
+    const HEADER_LAST_EVENT_ID = 'Last-Event-ID';
+
+    const MIME_TYPE_EVENT_STREAM = 'text/event-stream';
+
+    const STANDARD_HEADERS = [
+        'Connection' => 'keep-alive',
+        'Accept' => self::MIME_TYPE_EVENT_STREAM,
+        'Cache-Control' => 'no-cache'
+    ];
+
     private $readyState = self::CONNECTING;
     private $url;
     private $finalURL; //todo
@@ -29,24 +40,12 @@ class EventSource extends EventEmitter
 
     private $dataBuffer = "";
     private $eventBuffer = "";
-
     private $responseBuffer = "";
-
-    const HEADER_CONTENT_TYPE = 'Content-Type';
-    const HEADER_LAST_EVENT_ID = 'Last-Event-ID';
-
-    const MIME_TYPE_EVENT_STREAM = 'text/event-stream';
-
-    const STANDARD_HEADERS = [
-        'Connection' => 'keep-alive',
-        'Accept' => self::MIME_TYPE_EVENT_STREAM,
-        'Cache-Control' => 'no-cache'
-    ];
 
     public function __construct(string $url, array $options, Client $httpClient)
     {
 
-        if(array_key_exists('withCredentials',$options)){
+        if (array_key_exists('withCredentials', $options)) {
             $this->withCredentials = (boolean)$options['withCredentials'];
         }
 
@@ -62,13 +61,13 @@ class EventSource extends EventEmitter
     {
         $headers = self::STANDARD_HEADERS;
 
-        if(!empty($this->lastEventID)){
+        if (!empty($this->lastEventID)) {
             $headers[self::HEADER_LAST_EVENT_ID] = $this->lastEventID;
         }
 
         $this->httpRequest = $this->httpClient->request('GET', $this->url, $headers);
 
-        $this->httpRequest->on('response', [$this,'onResponseReceived']);
+        $this->httpRequest->on('response', [$this, 'onResponseReceived']);
         $this->httpRequest->on('error', [$this, 'onRequestError']);
 
         //this is to trigger the header write, but I feel like there must be a better way to do this!
@@ -78,15 +77,15 @@ class EventSource extends EventEmitter
     public function onResponseReceived(Response $response, Request $request)
     {
         $code = $response->getCode();
-        if($code == 200){
+        if ($code == 200) {
             //only care about the response when we have a successful connection
             //also double check the content type header, MUST include 'text/event-stream'
             $headers = $response->getHeaders();
-            if(!array_key_exists(self::HEADER_CONTENT_TYPE,$headers)){
-                throw new RuntimeException(self::HEADER_CONTENT_TYPE.' header missing; stopping request');
+            if (!array_key_exists(self::HEADER_CONTENT_TYPE, $headers)) {
+                throw new RuntimeException(self::HEADER_CONTENT_TYPE . ' header missing; stopping request');
             }
-            if(stripos($headers[self::HEADER_CONTENT_TYPE], self::MIME_TYPE_EVENT_STREAM) === false){
-                throw new RuntimeException(self::HEADER_CONTENT_TYPE.' mismatch; found: '.$headers[self::HEADER_CONTENT_TYPE]);
+            if (stripos($headers[self::HEADER_CONTENT_TYPE], self::MIME_TYPE_EVENT_STREAM) === false) {
+                throw new RuntimeException(self::HEADER_CONTENT_TYPE . ' mismatch; found: ' . $headers[self::HEADER_CONTENT_TYPE]);
             }
 
 //            $this->finalURL = $request->
@@ -117,26 +116,26 @@ class EventSource extends EventEmitter
 
         $this->responseBuffer = array_pop($responseLines);
 
-        foreach($responseLines as $line){
+        foreach ($responseLines as $line) {
             //line parsing time...
-            if(empty($line)) {
+            if (empty($line)) {
                 //dispatch current event
                 $this->dispatchEvent();
                 continue;
             }
-            $colonPosition = strpos($line,":");
-            if($colonPosition === 0){
+            $colonPosition = strpos($line, ":");
+            if ($colonPosition === 0) {
                 //ignore this line!
                 continue;
-            }else if($colonPosition !== false){
+            } else if ($colonPosition !== false) {
                 //found a colon somewhere other then the start ...
                 //we split at the colon
                 $field = substr($line, 0, $colonPosition);
-                $value = ltrim(substr($line, $colonPosition+1), " ");
+                $value = ltrim(substr($line, $colonPosition + 1), " ");
                 $this->processField($field, $value);
                 continue;
-            }else{
-                $this->processField($line,"");
+            } else {
+                $this->processField($line, "");
                 continue;
             }
         }
@@ -144,7 +143,7 @@ class EventSource extends EventEmitter
 
     protected function processField(string $field, string $value)
     {
-        switch($field){
+        switch ($field) {
             case 'event':
                 $this->eventBuffer = $value;
                 break;
@@ -155,7 +154,7 @@ class EventSource extends EventEmitter
                 $this->lastEventID = $value;
                 break;
             case 'retry':
-                if(is_numeric($value)){
+                if (is_numeric($value)) {
                     $this->reconnectTime = (int)$value;
                 }
                 break;
@@ -167,16 +166,16 @@ class EventSource extends EventEmitter
 
     protected function dispatchEvent()
     {
-        if(empty($this->dataBuffer)){
+        if (empty($this->dataBuffer)) {
             $this->dataBuffer = "";
             $this->eventBuffer = "";
             return;
         }
-        if(substr($this->dataBuffer,-1) === "\n"){
-            $this->dataBuffer = substr($this->dataBuffer,0,-1);
+        if (substr($this->dataBuffer, -1) === "\n") {
+            $this->dataBuffer = substr($this->dataBuffer, 0, -1);
         }
-        $eventType = (empty($this->eventBuffer))?('message'):($this->eventBuffer);
-        $messageEvent = new MessageEvent($eventType,[
+        $eventType = (empty($this->eventBuffer)) ? ('message') : ($this->eventBuffer);
+        $messageEvent = new MessageEvent($eventType, [
             'data' => $this->dataBuffer,
             'origin' => $this->getUrl(),
             'lastEventID' => $this->getLastEventID()
@@ -189,7 +188,7 @@ class EventSource extends EventEmitter
 
     public function onRequestError(Exception $error, Request $request)
     {
-        throw new \Exception('something went wrong',0, $error);
+        throw new \Exception('something went wrong', 0, $error);
     }
 
     public function close()

@@ -12,9 +12,7 @@ $client = $factory->create($loop, $dnsResolver);
 
 $eventSource = new \Method\EventSource('http://127.0.0.1/scratch/eventsource-server/example.php',[], $client);
 
-$eventSource->on('complex', function(\Method\MessageEvent $event){
-    $data = json_decode($event->getData());
-});
-
+// example: bind to your events here
+// $eventSource->on('eventName', function(Method\MessageEvent $event){ //do something } );
 
 $loop->run();
