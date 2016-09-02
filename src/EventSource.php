@@ -4,6 +4,7 @@ namespace Method;
 
 use Evenement\EventEmitter;
 use Exception;
+use React\EventLoop\LoopInterface;
 use React\HttpClient\Client;
 use React\HttpClient\Request;
 use React\HttpClient\Response;
@@ -31,6 +32,8 @@ class EventSource extends EventEmitter
     private $finalURL; //todo
     private $withCredentials = false; //todo
 
+    private $eventLoop;
+
     private $httpClient;
     private $httpRequest;
     private $httpResponse;
@@ -42,7 +45,7 @@ class EventSource extends EventEmitter
     private $eventBuffer = "";
     private $responseBuffer = "";
 
-    public function __construct(string $url, array $options, Client $httpClient)
+    public function __construct(string $url, array $options, LoopInterface $loop)
     {
 
         if (array_key_exists('withCredentials', $options)) {
@@ -51,6 +54,14 @@ class EventSource extends EventEmitter
 
         //todo resolve URL async styles but it's currently done during the httpClient->request() phase
         $this->url = $url;
+
+        $this->eventLoop = $loop;
+
+        $dnsResolverFactory = new \React\Dns\Resolver\Factory();
+        $dnsResolver = $dnsResolverFactory->createCached('8.8.8.8', $this->eventLoop);
+
+        $factory = new \React\HttpClient\Factory();
+        $httpClient = $factory->create($this->eventLoop, $dnsResolver);
 
         $this->httpClient = $httpClient;
 
@@ -88,9 +99,12 @@ class EventSource extends EventEmitter
                 throw new RuntimeException(self::HEADER_CONTENT_TYPE . ' mismatch; found: ' . $headers[self::HEADER_CONTENT_TYPE]);
             }
 
-//            $this->finalURL = $request->
-            $this->readyState = self::OPEN;
-            $this->emit('open', [$this]);
+            $this->eventLoop->futureTick(function(){
+                if($this->getReadyState() != self::CLOSED){
+                    $this->readyState = self::OPEN;
+                    $this->emit('open', [$this]);
+                }
+            });
 
             $this->httpResponse = $response;
             $this->httpResponse->on('data', [$this, 'onResponseData']);
@@ -183,7 +197,11 @@ class EventSource extends EventEmitter
         $this->dataBuffer = "";
         $this->eventBuffer = "";
 
-        $this->emit($messageEvent->getType(), [$messageEvent]);
+        $this->eventLoop->futureTick(function() use ($messageEvent){
+            if($this->getReadyState() != self::CLOSED){
+                $this->emit($messageEvent->getType(), [$messageEvent]);
+            }
+        });
     }
 
     public function onRequestError(Exception $error, Request $request)
