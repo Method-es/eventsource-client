@@ -17,6 +17,7 @@ class EventSource extends EventEmitter
 
     private $readyState = self::CONNECTING;
     private $url;
+    private $finalURL; //todo
     private $withCredentials = false; //todo
 
     private $httpClient;
@@ -88,7 +89,10 @@ class EventSource extends EventEmitter
                 throw new RuntimeException(self::HEADER_CONTENT_TYPE.' mismatch; found: '.$headers[self::HEADER_CONTENT_TYPE]);
             }
 
+//            $this->finalURL = $request->
             $this->readyState = self::OPEN;
+            $this->emit('open', [$this]);
+
             $this->httpResponse = $response;
             $this->httpResponse->on('data', [$this, 'onResponseData']);
         }
@@ -96,9 +100,18 @@ class EventSource extends EventEmitter
 
     public function onResponseData(string $data, Response $response)
     {
+        /*
+         * okay overall we want to treat this process in multiple steps:
+         * - accumulate the data buffer; we should assume that there is a chance that data will only be sent in non-discrete chunks
+         *      this means that when we receive data, we append it to an internal buffer.
+         * - parse the buffer; this is the important step of determining if we have a valid "chunk" of data;
+         *      the good news here is that ALL data will END with a \n|\r|\r\n; so we can always split based on \r,
+         *      and always append new data onto the last element
+         * - parse individual lines; this is where the spec comes into play to separate the events, from data, from retry, etc etc etc
+         */
+
         $responseChunk = (string)$data;
         $this->responseBuffer .= $responseChunk;
-        //            var_dump(str_replace(["\r","\n"],['\r','\n'],$responseChunk));
 
         $responseLines = preg_split('/\R/', $this->responseBuffer);
 
@@ -108,10 +121,70 @@ class EventSource extends EventEmitter
             //line parsing time...
             if(empty($line)) {
                 //dispatch current event
-//                dispatchEvent($currentEvent);
+                $this->dispatchEvent();
+                continue;
             }
-
+            $colonPosition = strpos($line,":");
+            if($colonPosition === 0){
+                //ignore this line!
+                continue;
+            }else if($colonPosition !== false){
+                //found a colon somewhere other then the start ...
+                //we split at the colon
+                $field = substr($line, 0, $colonPosition);
+                $value = ltrim(substr($line, $colonPosition+1), " ");
+                $this->processField($field, $value);
+                continue;
+            }else{
+                $this->processField($line,"");
+                continue;
+            }
         }
+    }
+
+    protected function processField(string $field, string $value)
+    {
+        switch($field){
+            case 'event':
+                $this->eventBuffer = $value;
+                break;
+            case 'data':
+                $this->dataBuffer .= $value . "\n";
+                break;
+            case 'id':
+                $this->lastEventID = $value;
+                break;
+            case 'retry':
+                if(is_numeric($value)){
+                    $this->reconnectTime = (int)$value;
+                }
+                break;
+            default:
+                //ignored.
+                break;
+        }
+    }
+
+    protected function dispatchEvent()
+    {
+        if(empty($this->dataBuffer)){
+            $this->dataBuffer = "";
+            $this->eventBuffer = "";
+            return;
+        }
+        if(substr($this->dataBuffer,-1) === "\n"){
+            $this->dataBuffer = substr($this->dataBuffer,0,-1);
+        }
+        $eventType = (empty($this->eventBuffer))?('message'):($this->eventBuffer);
+        $messageEvent = new MessageEvent($eventType,[
+            'data' => $this->dataBuffer,
+            'origin' => $this->getUrl(),
+            'lastEventID' => $this->getLastEventID()
+        ]);
+        $this->dataBuffer = "";
+        $this->eventBuffer = "";
+
+        $this->emit($messageEvent->getType(), [$messageEvent]);
     }
 
     public function onRequestError(Exception $error, Request $request)
